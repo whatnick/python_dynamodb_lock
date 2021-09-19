@@ -129,7 +129,16 @@ class DynamoDBLockClient:
         self._heartbeat_sender_thread.daemon = True
         self._heartbeat_sender_thread.start()
         logger.info('Started the heartbeat-sender thread: %s', str(self._heartbeat_sender_thread))
-
+    
+    def _sleep_with_break_out(self, total_time_to_sleep):
+        """
+        Allows the sleep to be interrupted if shutting down
+        """
+        while (total_time_to_sleep > 0):
+            time.sleep(1)
+            total_time_to_sleep = total_time_to_sleep - 1
+            if self._shutting_down:
+                break
 
     def _send_heartbeat_loop(self):
         """
@@ -157,14 +166,14 @@ class DynamoDBLockClient:
                 curr_loop_end_time = time.monotonic()
                 next_loop_start_time = start_time + count * avg_loop_time
                 if curr_loop_end_time < next_loop_start_time:
-                    time.sleep( next_loop_start_time - curr_loop_end_time )
+                    self._sleep_with_break_out(next_loop_start_time - curr_loop_end_time)
 
             # After all the locks have been "heartbeat"-ed, sleep before the next run (if needed)
             logger.info('Finished the send_heartbeat loop')
             end_time = time.monotonic()
             next_start_time = start_time + self._heartbeat_period.total_seconds()
             if end_time < next_start_time and not self._shutting_down:
-                time.sleep( next_start_time - end_time )
+                self._sleep_with_break_out(next_start_time - end_time)
             elif end_time > next_start_time + avg_loop_time:
                 logger.warning('Sending heartbeats for all the locks took longer than the _heartbeat_period')
 
@@ -281,7 +290,7 @@ class DynamoDBLockClient:
             end_time = time.monotonic()
             next_start_time = start_time + self._heartbeat_period.total_seconds()
             if end_time < next_start_time and not self._shutting_down:
-                time.sleep( next_start_time - end_time )
+                self._sleep_with_break_out(next_start_time - end_time)
             else:
                 logger.warning('Checking heartbeats for all the locks took longer than the _heartbeat_period')
 
@@ -481,7 +490,7 @@ class DynamoDBLockClient:
                 )
             elif next_loop_start_time > curr_loop_end_time:
                 logger.info('Sleeping before a retry: %s', new_lock.unique_identifier)
-                time.sleep(next_loop_start_time - curr_loop_end_time)
+                self._sleep_with_break_out(next_loop_start_time - curr_loop_end_time)
 
 
     def release_lock(self, lock, best_effort=True):
